@@ -43,12 +43,14 @@ func TestMain(m *testing.M) {
 			installComponent("../manifests/maestro"),
 			createTables,
 		)
-		testenv.Finish(
-		// uninstallComponent("../manifests/maestro"),
-		// uninstallComponent("../manifests/dynamodb"),
-		// uninstallComponent("../manifests/work-agent"),
-		// uninstallComponent("../manifests/mqtt-broker"),
-		)
+		if os.Getenv("CLEAN_ENV") == "true" {
+			testenv.Finish(
+				uninstallComponent("../manifests/maestro"),
+				uninstallComponent("../manifests/dynamodb"),
+				uninstallComponent("../manifests/work-agent"),
+				uninstallComponent("../manifests/mqtt-broker"),
+			)
+		}
 	} else {
 		kindClusterName := envconf.RandomName("kind-with-config", 16)
 
@@ -62,13 +64,15 @@ func TestMain(m *testing.M) {
 			createTables,
 		)
 
-		testenv.Finish(
-			// uninstallComponent("../manifests/maestro"),
-			// uninstallComponent("../manifests/dynamodb"),
-			// uninstallComponent("../manifests/work-agent"),
-			// uninstallComponent("../manifests/mqtt-broker"),
-			envfuncs.DestroyCluster(kindClusterName),
-		)
+		if os.Getenv("CLEAN_ENV") == "true" {
+			testenv.Finish(
+				uninstallComponent("../manifests/maestro"),
+				uninstallComponent("../manifests/dynamodb"),
+				uninstallComponent("../manifests/work-agent"),
+				uninstallComponent("../manifests/mqtt-broker"),
+				envfuncs.DestroyCluster(kindClusterName),
+			)
+		}
 	}
 
 	os.Exit(testenv.Run(m))
