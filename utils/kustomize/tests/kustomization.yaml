@@ -1,0 +1,5 @@
+commonLabels:
+  foo: bar
+
+resources:
+- foo-config.yaml

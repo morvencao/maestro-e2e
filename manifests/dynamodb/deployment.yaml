@@ -1,0 +1,28 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: dynamodb
+  name: dynamodb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dynamodb
+  template:
+    metadata:
+      labels:
+        app: dynamodb
+    spec:
+      containers:
+      - image: amazon/dynamodb-local
+        imagePullPolicy: Always
+        name: dynamodb-local
+        args:
+        - -jar
+        - DynamoDBLocal.jar
+        - -sharedDb
+        ports:
+        - name: dynamodb
+          containerPort: 8000

@@ -1,0 +1,15 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: dynamodb
+  name: dynamodb
+spec:
+  ports:
+  - name: dynamodb
+    port: 8000
+    nodePort: 31310
+  selector:
+    app: dynamodb
+  type: NodePort

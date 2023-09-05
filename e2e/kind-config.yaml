@@ -1,0 +1,17 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - containerPort: 31310
+    hostPort: 31310
+    listenAddress: "0.0.0.0"
+    protocol: TCP
+  - containerPort: 31320
+    hostPort: 31320
+    listenAddress: "0.0.0.0"
+    protocol: TCP
+  - containerPort: 31330
+    hostPort: 31330
+    listenAddress: "0.0.0.0"
+    protocol: TCP
