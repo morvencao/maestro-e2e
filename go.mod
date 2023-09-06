@@ -17,6 +17,8 @@ require (
 	sigs.k8s.io/yaml v1.3.0
 )
 
+replace github.com/kube-orchestra/maestro => github.com/morvencao/maestro v0.0.0-20230905014658-b72e18e6f2ff
+
 require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.13.27 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.13.5 // indirect
@@ -30,6 +32,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.14.13 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.19.3 // indirect
 	github.com/aws/smithy-go v1.13.5 // indirect
+	github.com/cloudevents/sdk-go/binding/format/protobuf/v2 v2.14.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.10.2 // indirect
 	github.com/evanphx/json-patch v5.6.0+incompatible // indirect
