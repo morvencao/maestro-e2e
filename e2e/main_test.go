@@ -3,6 +3,8 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -11,6 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/e2e-framework/klient/conf"
@@ -29,6 +33,12 @@ var (
 	testenv env.Environment
 )
 
+const (
+	dbEndpoint         = "http://127.0.0.1:31310"
+	maestroRESTBaseURL = "http://127.0.0.1:31330"
+	maestroGPRCBaseURL = "127.0.0.1:31320"
+)
+
 func TestMain(m *testing.M) {
 	testenv = env.New()
 	if os.Getenv("REAL_CLUSTER") == "true" {
@@ -41,36 +51,53 @@ func TestMain(m *testing.M) {
 			installComponent("../manifests/work-agent"),
 			installComponent("../manifests/dynamodb"),
 			installComponent("../manifests/maestro"),
-			createTables,
+			createTables("us-east-1", dbEndpoint),
+			createGRPCClient(maestroGPRCBaseURL),
+			createHttpClient(),
 		)
 		if os.Getenv("CLEAN_ENV") == "true" {
 			testenv.Finish(
+				deleteHttpClient(),
+				deleteGRPCClient(),
 				uninstallComponent("../manifests/maestro"),
 				uninstallComponent("../manifests/dynamodb"),
 				uninstallComponent("../manifests/work-agent"),
 				uninstallComponent("../manifests/mqtt-broker"),
 			)
+		} else {
+			testenv.Finish(
+				deleteHttpClient(),
+				deleteGRPCClient(),
+			)
 		}
 	} else {
-		kindClusterName := envconf.RandomName("kind-with-config", 16)
+		kindClusterName := envconf.RandomName("maestro-e2e", 16)
 
 		testenv.Setup(
-			envfuncs.CreateCluster(kind.NewProvider(), kindClusterName),
 			envfuncs.CreateClusterWithConfig(kind.NewProvider(), kindClusterName, "kind-config.yaml", kind.WithImage("kindest/node:v1.27.1")),
 			installComponent("../manifests/mqtt-broker"),
 			installComponent("../manifests/work-agent"),
 			installComponent("../manifests/dynamodb"),
 			installComponent("../manifests/maestro"),
-			createTables,
+			createTables("us-east-1", dbEndpoint),
+			createGRPCClient(maestroGPRCBaseURL),
+			createHttpClient(),
 		)
 
 		if os.Getenv("CLEAN_ENV") == "true" {
 			testenv.Finish(
+				deleteHttpClient(),
+				deleteGRPCClient(),
 				uninstallComponent("../manifests/maestro"),
 				uninstallComponent("../manifests/dynamodb"),
 				uninstallComponent("../manifests/work-agent"),
 				uninstallComponent("../manifests/mqtt-broker"),
 				envfuncs.DestroyCluster(kindClusterName),
+			)
+		} else {
+			testenv.Finish(
+				deleteHttpClient(),
+				deleteGRPCClient(),
 			)
 		}
 	}
@@ -132,70 +159,82 @@ func uninstallComponent(kustomizationPath string) env.Func {
 	}
 }
 
-func createTables(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
-	client, err := cfg.NewClient()
-	if err != nil {
-		return ctx, err
-	}
-	dynamodbDep := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Name: "dynamodb", Namespace: "dynamodb"},
-	}
-	// wait for the deployment to become at least 50%
-	err = wait.For(conditions.New(client.Resources()).ResourceMatch(dynamodbDep, func(object k8s.Object) bool {
-		d := object.(*appsv1.Deployment)
-		return float64(d.Status.ReadyReplicas)/float64(*d.Spec.Replicas) >= 0.50
-	}), wait.WithTimeout(time.Minute*2))
-	if err != nil {
-		return ctx, err
-	}
+func createTables(region, endpoint string) env.Func {
+	return func(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
+		client, err := cfg.NewClient()
+		if err != nil {
+			return ctx, err
+		}
+		dynamodbDep := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "dynamodb", Namespace: "dynamodb"},
+		}
+		// wait for the deployment to become at least 100%
+		err = wait.For(conditions.New(client.Resources()).ResourceMatch(dynamodbDep, func(object k8s.Object) bool {
+			d := object.(*appsv1.Deployment)
+			return float64(d.Status.ReadyReplicas)/float64(*d.Spec.Replicas) >= 1.0
+		}), wait.WithTimeout(time.Minute*2))
+		if err != nil {
+			return ctx, err
+		}
 
-	fmt.Printf("deployment availability: %.2f%%\n", float64(dynamodbDep.Status.ReadyReplicas)/float64(*dynamodbDep.Spec.Replicas)*100)
+		fmt.Printf("deployment availability: %.2f%%\n", float64(dynamodbDep.Status.ReadyReplicas)/float64(*dynamodbDep.Spec.Replicas)*100)
 
-	dynamodbConfig, err := config.LoadDefaultConfig(ctx,
-		config.WithRegion("us-east-1"),
-		config.WithEndpointResolver(aws.EndpointResolverFunc(
-			func(service, region string) (aws.Endpoint, error) {
-				return aws.Endpoint{URL: fmt.Sprintf("http://127.0.0.1:31310")}, nil
-			})),
-		// config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
-		// 	Value: aws.Credentials{
-		// 		AccessKeyID:     accessKeyID,
-		// 		SecretAccessKey: secretAccessKey,
-		// 	},
-		// }),
-	)
+		dynamodbConfig, err := config.LoadDefaultConfig(ctx,
+			config.WithRegion(region),
+			config.WithEndpointResolver(aws.EndpointResolverFunc(
+				func(service, region string) (aws.Endpoint, error) {
+					return aws.Endpoint{URL: endpoint}, nil
+				})),
+			// config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
+			// 	Value: aws.Credentials{
+			// 		AccessKeyID:     accessKeyID,
+			// 		SecretAccessKey: secretAccessKey,
+			// 	},
+			// }),
+		)
 
-	if err != nil {
-		fmt.Printf("Error loading AWS DynamoDB config: %v\n", err)
-		return ctx, err
-	}
+		if err != nil {
+			fmt.Printf("Error loading AWS DynamoDB config: %v\n", err)
+			return ctx, err
+		}
 
-	dynamodbClient, err := dynamodb.NewFromConfig(dynamodbConfig), nil
-	if err != nil {
-		fmt.Printf("Error creating AWS DynamoDB client: %v\n", err)
-		return ctx, err
-	}
+		dynamodbClient, err := dynamodb.NewFromConfig(dynamodbConfig), nil
+		if err != nil {
+			fmt.Printf("Error creating AWS DynamoDB client: %v\n", err)
+			return ctx, err
+		}
 
-	tableName := "Consumers"
-	table, err := dynamodbClient.CreateTable(ctx, &dynamodb.CreateTableInput{
-		AttributeDefinitions: []types.AttributeDefinition{{
-			AttributeName: aws.String("Id"),
-			AttributeType: types.ScalarAttributeTypeS,
-		}},
-		KeySchema: []types.KeySchemaElement{{
-			AttributeName: aws.String("Id"),
-			KeyType:       types.KeyTypeHash,
-		}},
-		TableName: aws.String(tableName),
-		ProvisionedThroughput: &types.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
-		},
-	})
-	if err != nil {
-		fmt.Printf("Error creating table(%v): %v\n", tableName, err)
-		return ctx, err
-	} else {
+		tableName := "Consumers"
+		tableInput := &dynamodb.CreateTableInput{
+			AttributeDefinitions: []types.AttributeDefinition{{
+				AttributeName: aws.String("Id"),
+				AttributeType: types.ScalarAttributeTypeS,
+			}},
+			KeySchema: []types.KeySchemaElement{{
+				AttributeName: aws.String("Id"),
+				KeyType:       types.KeyTypeHash,
+			}},
+			TableName: aws.String(tableName),
+			ProvisionedThroughput: &types.ProvisionedThroughput{
+				ReadCapacityUnits:  aws.Int64(5),
+				WriteCapacityUnits: aws.Int64(5),
+			},
+		}
+
+		err = wait.For(func(ctx context.Context) (done bool, err error) {
+			_, err = dynamodbClient.CreateTable(ctx, tableInput)
+			if err != nil {
+				done = false
+			} else {
+				done = true
+			}
+			return
+		}, wait.WithInterval(time.Second*20), wait.WithTimeout(time.Minute*2))
+		if err != nil {
+			fmt.Printf("Error creating table(%v): %v\n", tableName, err)
+			return ctx, err
+		}
+
 		waiter := dynamodb.NewTableExistsWaiter(dynamodbClient)
 		err = waiter.Wait(ctx, &dynamodb.DescribeTableInput{
 			TableName: &tableName}, 5*time.Minute)
@@ -203,40 +242,114 @@ func createTables(ctx context.Context, cfg *envconf.Config) (context.Context, er
 			fmt.Printf("Wait for table exists failed: %v\n", err)
 			return ctx, err
 		}
-	}
 
-	fmt.Printf("Table(%v) created successfully\n", table.TableDescription.TableName)
+		tableName = "Resources"
+		tableInput = &dynamodb.CreateTableInput{
+			AttributeDefinitions: []types.AttributeDefinition{{
+				AttributeName: aws.String("Id"),
+				AttributeType: types.ScalarAttributeTypeS,
+			}},
+			KeySchema: []types.KeySchemaElement{{
+				AttributeName: aws.String("Id"),
+				KeyType:       types.KeyTypeHash,
+			}},
+			TableName: aws.String(tableName),
+			ProvisionedThroughput: &types.ProvisionedThroughput{
+				ReadCapacityUnits:  aws.Int64(5),
+				WriteCapacityUnits: aws.Int64(5),
+			},
+		}
+		err = wait.For(func(ctx context.Context) (done bool, err error) {
+			_, err = dynamodbClient.CreateTable(ctx, tableInput)
+			if err != nil {
+				done = false
+			} else {
+				done = true
+			}
+			return
+		}, wait.WithInterval(time.Second*20), wait.WithTimeout(time.Minute*2))
+		if err != nil {
+			fmt.Printf("Error creating table(%v): %v\n", tableName, err)
+			return ctx, err
+		}
 
-	tableName = "Resources"
-	table, err = dynamodbClient.CreateTable(ctx, &dynamodb.CreateTableInput{
-		AttributeDefinitions: []types.AttributeDefinition{{
-			AttributeName: aws.String("Id"),
-			AttributeType: types.ScalarAttributeTypeS,
-		}},
-		KeySchema: []types.KeySchemaElement{{
-			AttributeName: aws.String("Id"),
-			KeyType:       types.KeyTypeHash,
-		}},
-		TableName: aws.String(tableName),
-		ProvisionedThroughput: &types.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
-		},
-	})
-	if err != nil {
-		fmt.Printf("Error creating table(%v): %v\n", tableName, err)
-		return ctx, err
-	} else {
-		waiter := dynamodb.NewTableExistsWaiter(dynamodbClient)
+		waiter = dynamodb.NewTableExistsWaiter(dynamodbClient)
 		err = waiter.Wait(ctx, &dynamodb.DescribeTableInput{
 			TableName: &tableName}, 5*time.Minute)
 		if err != nil {
 			fmt.Printf("Wait for table exists failed: %v\n", err)
 			return ctx, err
 		}
+
+		return ctx, nil
 	}
+}
 
-	fmt.Printf("Table(%v) created successfully\n", table.TableDescription.TableName)
+func createHttpClient() env.Func {
+	return func(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
+		transport := &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			Dial: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).Dial,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
 
-	return ctx, nil
+		client := &http.Client{
+			Transport: transport,
+		}
+
+		return context.WithValue(ctx, "http-client", client), nil
+	}
+}
+
+func deleteHttpClient() env.Func {
+	return func(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
+		httpClientValue := ctx.Value("http-client")
+		if httpClientValue == nil {
+			return ctx, fmt.Errorf("delete http client func: context http client is nil")
+		}
+
+		httpClient, ok := httpClientValue.(*http.Client)
+		if !ok {
+			return ctx, fmt.Errorf("delete http client func: unexpected type for http client value")
+		}
+
+		httpClient.CloseIdleConnections()
+		return ctx, nil
+	}
+}
+
+func createGRPCClient(endpoint string) env.Func {
+	return func(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
+		conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			fmt.Printf("Error initializing GRPC connection: %v\n", err)
+			return ctx, err
+		}
+
+		return context.WithValue(ctx, "grpc-connction", conn), nil
+	}
+}
+
+func deleteGRPCClient() env.Func {
+	return func(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
+		connValue := ctx.Value("grpc-connction")
+		if connValue == nil {
+			return ctx, fmt.Errorf("delete grpc client func: context grpc connection is nil")
+		}
+
+		conn, ok := connValue.(*grpc.ClientConn)
+		if !ok {
+			return ctx, fmt.Errorf("delete grpc client func: unexpected type for grpc connection value")
+		}
+
+		conn.Close()
+		return ctx, nil
+	}
 }

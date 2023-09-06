@@ -1,16 +1,17 @@
 package e2e
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
+	"log"
 	"testing"
 	"time"
 
-	maestrov1 "github.com/kube-orchestra/maestro/proto/api/v1"
-	"google.golang.org/protobuf/encoding/protojson"
+	cepbv2 "github.com/cloudevents/sdk-go/binding/format/protobuf/v2"
+	"github.com/cloudevents/sdk-go/v2/event"
+	maestropbv1 "github.com/kube-orchestra/maestro/proto/api/v1"
+	"google.golang.org/grpc"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/e2e-framework/klient/k8s"
@@ -20,8 +21,10 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/features"
 )
 
-func TestManifestAPI(t *testing.T) {
-	manifestFeature := features.New("Manifest API").
+func TestManifestGRPCService(t *testing.T) {
+	manifestFeature := features.New("Manifest GRPC Service").
+		WithLabel("type", "grpc").
+		WithLabel("res", "manifest").
 		Setup(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			if consumerID == "" {
 				t.Fatal("consumerID is empty")
@@ -43,41 +46,45 @@ func TestManifestAPI(t *testing.T) {
 				t.Fatal(err)
 			}
 			// t.Logf("deployment availability: %.2f%%", float64(workAgentDep.Status.ReadyReplicas)/float64(*workAgentDep.Spec.Replicas)*100)
-			return ctx
+
+			conn := ctx.Value("grpc-connction").(*grpc.ClientConn)
+			grpcClient := maestropbv1.NewCloudEventsServiceClient(conn)
+
+			return context.WithValue(ctx, "grpc-manifest-client", grpcClient)
 		}).
 		Assess("should be able to post a manifest", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// create a manifest
-			requestURL := fmt.Sprintf("%s/%s", baseURL, "v1/cloudevents")
+			grpcClient := ctx.Value("grpc-manifest-client").(maestropbv1.CloudEventsServiceClient)
 			webDeployCEJSON := []byte(fmt.Sprintf(`
 {
-	"id": "123456789",
+	"id": "8f61b49e-e51d-4c17-a8e2-1e1d89a77e2c",
 	"specversion": "1.0",
-	"time": "2023-08-30T17:31:00Z",
+	"time": "2023-09-01T17:31:00Z",
 	"datacontenttype": "application/json",
 	"source": "maestro",
 	"type": "io.open-cluster-management.works.v1alpha1.manifests.spec.create_request",
 	"clustername": "%s",
-	"resourceid": "748d04ad-887a-44dd-b788-da1373227072",
+	"resourceid": "8a178798-f445-459c-ad66-6645246ec811",
 	"resourceversion": "1",
 	"data": {
 		"manifest": {
 			"apiVersion": "apps/v1",
 			"kind": "Deployment",
 			"metadata": {
-				"name": "web",
+				"name": "web2",
 				"namespace": "default"
 			},
 			"spec": {
 				"replicas": 1,
 				"selector": {
 				"matchLabels": {
-					"app": "web"
+					"app": "web2"
 				}
 				},
 				"template": {
 				"metadata": {
 					"labels": {
-					"app": "web"
+					"app": "web2"
 					}
 				},
 				"spec": {
@@ -85,7 +92,7 @@ func TestManifestAPI(t *testing.T) {
 					{
 						"image": "nginxinc/nginx-unprivileged",
 						"imagePullPolicy": "IfNotPresent",
-						"name": "web"
+						"name": "nginx"
 					}
 					]
 				}
@@ -95,36 +102,24 @@ func TestManifestAPI(t *testing.T) {
 	}
 }`, consumerID))
 
-			bodyReader := bytes.NewReader(webDeployCEJSON)
-			req, err := http.NewRequest(http.MethodPost, requestURL, bodyReader)
+			evt := &event.Event{}
+			err := json.Unmarshal(webDeployCEJSON, evt)
 			if err != nil {
-				t.Fatal(err)
+				log.Fatal(err)
 			}
 
-			req.Header.Set("Content-Type", "application/x-cloudevents")
-			resp, err := http.DefaultClient.Do(req)
+			pbEvt, err := cepbv2.ToProto(evt)
 			if err != nil {
-				t.Fatal(err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("expected status code %d, got %d", http.StatusOK, resp.StatusCode)
+				log.Fatal(err)
 			}
 
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			ceSendResp := &maestrov1.CloudEventSendResponse{}
-			err = protojson.Unmarshal(bodyBytes, ceSendResp)
+			pbCESendResp, err := grpcClient.Send(ctx, pbEvt)
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			webDep := &appsv1.Deployment{
-				ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"},
+				ObjectMeta: metav1.ObjectMeta{Name: "web2", Namespace: "default"},
 			}
 
 			err = wait.For(conditions.New(cfg.Client().Resources()).ResourceMatch(webDep, func(object k8s.Object) bool {
@@ -135,42 +130,42 @@ func TestManifestAPI(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			t.Logf("manifest created")
+			t.Logf("manifest created: %s", pbCESendResp.Status)
 			return ctx
 		}).
 		Assess("should be able to update the manifest", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// update the manifest
-			requestURL := fmt.Sprintf("%s/%s", baseURL, "v1/cloudevents")
+			grpcClient := ctx.Value("grpc-manifest-client").(maestropbv1.CloudEventsServiceClient)
 			webDeployCEJSON := []byte(fmt.Sprintf(`
 {
-	"id": "123456789",
+	"id": "b89d65c9-954a-4718-8d0b-6ae70122ada7",
 	"specversion": "1.0",
-	"time": "2023-08-30T17:31:00Z",
+	"time": "2023-09-02T17:31:00Z",
 	"datacontenttype": "application/json",
 	"source": "maestro",
-	"type": "io.open-cluster-management.works.v1alpha1.manifests.spec.create_request",
+	"type": "io.open-cluster-management.works.v1alpha1.manifests.spec.update_request",
 	"clustername": "%s",
-	"resourceid": "748d04ad-887a-44dd-b788-da1373227072",
+	"resourceid": "8a178798-f445-459c-ad66-6645246ec811",
 	"resourceversion": "2",
 	"data": {
 		"manifest": {
 			"apiVersion": "apps/v1",
 			"kind": "Deployment",
 			"metadata": {
-				"name": "web",
+				"name": "web2",
 				"namespace": "default"
 			},
 			"spec": {
 				"replicas": 2,
 				"selector": {
 				"matchLabels": {
-					"app": "web"
+					"app": "web2"
 				}
 				},
 				"template": {
 				"metadata": {
 					"labels": {
-					"app": "web"
+					"app": "web2"
 					}
 				},
 				"spec": {
@@ -178,7 +173,7 @@ func TestManifestAPI(t *testing.T) {
 					{
 						"image": "nginxinc/nginx-unprivileged",
 						"imagePullPolicy": "IfNotPresent",
-						"name": "web"
+						"name": "nginx"
 					}
 					]
 				}
@@ -188,36 +183,24 @@ func TestManifestAPI(t *testing.T) {
 	}
 }`, consumerID))
 
-			bodyReader := bytes.NewReader(webDeployCEJSON)
-			req, err := http.NewRequest(http.MethodPost, requestURL, bodyReader)
+			evt := &event.Event{}
+			err := json.Unmarshal(webDeployCEJSON, evt)
 			if err != nil {
-				t.Fatal(err)
+				log.Fatal(err)
 			}
 
-			req.Header.Set("Content-Type", "application/x-cloudevents")
-			resp, err := http.DefaultClient.Do(req)
+			pbEvt, err := cepbv2.ToProto(evt)
 			if err != nil {
-				t.Fatal(err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("expected status code %d, got %d", http.StatusOK, resp.StatusCode)
+				log.Fatal(err)
 			}
 
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			ceSendResp := &maestrov1.CloudEventSendResponse{}
-			err = protojson.Unmarshal(bodyBytes, ceSendResp)
+			pbCESendResp, err := grpcClient.Send(ctx, pbEvt)
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			webDep := &appsv1.Deployment{
-				ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"},
+				ObjectMeta: metav1.ObjectMeta{Name: "web2", Namespace: "default"},
 			}
 
 			err = wait.For(conditions.New(cfg.Client().Resources()).ResourceMatch(webDep, func(object k8s.Object) bool {
@@ -228,7 +211,7 @@ func TestManifestAPI(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			t.Logf("manifest updated")
+			t.Logf("manifest updated: %s", pbCESendResp.Status)
 			return ctx
 		}).
 		Teardown(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {

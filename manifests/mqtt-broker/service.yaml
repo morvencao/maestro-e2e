@@ -9,8 +9,7 @@ spec:
   ports:
   - name: mosquitto
     port: 1883
-    nodePort: 31320
   selector:
     app: mosquitto
     tier: frontend
-  type: NodePort
+  type: ClusterIP

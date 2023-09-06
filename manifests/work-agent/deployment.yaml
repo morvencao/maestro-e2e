@@ -25,7 +25,7 @@ spec:
           - "--feature-gates=RawFeedbackJsonString=true"
           - "--spoke-cluster-name=cluster1"
           - "--disable-leader-election"
-          - "--mqtt-broker-host=172.18.0.2:31320"
+          - "--mqtt-broker-host=mosquitto.mqtt:1883"
           - "--mqtt-username=admin"
           - "--mqtt-password=password"
           - "--mqtt-sub-qos=1"

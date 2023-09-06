@@ -22,6 +22,9 @@ spec:
         args:
         - "/maestro"
         ports:
+        - name: maestro-grpc
+          containerPort: 8080
+          protocol: TCP
         - name: maestro-api
           containerPort: 8090
           protocol: TCP

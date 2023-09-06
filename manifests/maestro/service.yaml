@@ -7,6 +7,9 @@ metadata:
   name: maestro-api
 spec:
   ports:
+  - name: maestro-grpc
+    port: 8080
+    nodePort: 31320
   - name: maestro-api
     port: 8090
     nodePort: 31330

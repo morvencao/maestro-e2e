@@ -1,16 +1,14 @@
 package e2e
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	maestropbv1 "github.com/kube-orchestra/maestro/proto/api/v1"
+	"google.golang.org/grpc"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/e2e-framework/klient/k8s"
@@ -18,16 +16,12 @@ import (
 	"sigs.k8s.io/e2e-framework/klient/wait/conditions"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
-
-	maestrov1 "github.com/kube-orchestra/maestro/proto/api/v1"
 )
 
-const baseURL = "http://127.0.0.1:31330"
-
-var consumerID = ""
-
-func TestConsumerAPI(t *testing.T) {
-	consumerFeature := features.New("Consumer API").
+func TestConsumerGRPCService(t *testing.T) {
+	consumerFeature := features.New("Consumer GRPC Service").
+		WithLabel("type", "grpc").
+		WithLabel("res", "consumer").
 		Setup(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			client, err := cfg.NewClient()
 			if err != nil {
@@ -45,123 +39,74 @@ func TestConsumerAPI(t *testing.T) {
 				t.Fatal(err)
 			}
 			// t.Logf("deployment availability: %.2f%%", float64(maestroDep.Status.ReadyReplicas)/float64(*maestroDep.Spec.Replicas)*100)
-			return ctx
+
+			conn := ctx.Value("grpc-connction").(*grpc.ClientConn)
+			grpcClient := maestropbv1.NewConsumerServiceClient(conn)
+
+			return context.WithValue(ctx, "grpc-consumer-client", grpcClient)
 		}).
 		Assess("Should be able to create a consumer", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// create a consumer
-			requestURL := fmt.Sprintf("%s/%s", baseURL, "v1/consumers")
-			jsonBody := []byte(`{"name": "Test", "labels": [{"key": "k1", "value": "v1" }]}`)
-			bodyReader := bytes.NewReader(jsonBody)
-			req, err := http.NewRequest(http.MethodPost, requestURL, bodyReader)
+			grpcClient := ctx.Value("grpc-consumer-client").(maestropbv1.ConsumerServiceClient)
+			pbConsumer, err := grpcClient.Create(ctx, &maestropbv1.ConsumerCreateRequest{
+				Labels: []*maestropbv1.ConsumerLabel{
+					{
+						Key:   "foo",
+						Value: "bar",
+					},
+				},
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			req.Header.Set("Content-Type", "application/json")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("expected status code %d, got %d", http.StatusOK, resp.StatusCode)
-			}
-
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			consumer := &maestrov1.Consumer{}
-			err = json.Unmarshal(bodyBytes, consumer)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			t.Logf("consumer created: %s", consumer.Id)
-			consumerID = consumer.Id
+			t.Logf("consumer created: %s", pbConsumer.Id)
+			consumerID = pbConsumer.Id
 			return ctx
 		}).
 		Assess("Should be able to retrieve a consumer", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// retrieve the consumer
-			requestURL := fmt.Sprintf("%s/%s/%s", baseURL, "v1/consumers", consumerID)
-			req, err := http.NewRequest(http.MethodGet, requestURL, nil)
+			grpcClient := ctx.Value("grpc-consumer-client").(maestropbv1.ConsumerServiceClient)
+			pbConsumer, err := grpcClient.Read(ctx, &maestropbv1.ConsumerReadRequest{
+				Id: consumerID,
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("expected status code %d, got %d", http.StatusOK, resp.StatusCode)
-			}
-
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			consumer := &maestrov1.Consumer{}
-			err = json.Unmarshal(bodyBytes, consumer)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			t.Logf("consumer retrieved: %s", consumer.Id)
+			t.Logf("consumer retrieved: %s", pbConsumer.Id)
 
 			return ctx
 		}).
 		Assess("Should be able to update a consumer", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// update the consumer
-			requestURL := fmt.Sprintf("%s/%s/%s", baseURL, "v1/consumers", consumerID)
-			jsonBody := []byte(`{"name": "Test", "labels": [{"key": "k1", "value": "v2" }]}`)
-			bodyReader := bytes.NewReader(jsonBody)
-			req, err := http.NewRequest(http.MethodPut, requestURL, bodyReader)
+			grpcClient := ctx.Value("grpc-consumer-client").(maestropbv1.ConsumerServiceClient)
+			pbConsumer, err := grpcClient.Update(ctx, &maestropbv1.ConsumerUpdateRequest{
+				Id: consumerID,
+				Labels: []*maestropbv1.ConsumerLabel{
+					{
+						Key:   "foo",
+						Value: "goo",
+					},
+				},
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			req.Header.Set("Content-Type", "application/json")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("expected status code %d, got %d", http.StatusOK, resp.StatusCode)
-			}
-
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			consumer := &maestrov1.Consumer{}
-			err = json.Unmarshal(bodyBytes, consumer)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			labels := consumer.GetLabels()
+			labels := pbConsumer.GetLabels()
 			if len(labels) != 1 {
 				t.Fatalf("expected label count %d, got %d", 1, len(labels))
 			}
 			label := labels[0]
-			if label.Key != "k1" {
-				t.Fatalf("expected label key %s, got %s", "k1", label.Key)
+			if label.Key != "foo" {
+				t.Fatalf("expected label key %s, got %s", "foo", label.Key)
 			}
-			if label.Value != "v2" {
-				t.Fatalf("expected label value %s, got %s", "v2", label.Value)
+			if label.Value != "goo" {
+				t.Fatalf("expected label value %s, got %s", "goo", label.Value)
 			}
 
-			t.Logf("consumer updated: %s", consumer.Id)
-			consumerID = consumer.Id
+			t.Logf("consumer updated: %s", pbConsumer.Id)
 			return ctx
 		}).
 		Assess("Update the cluster id for work-agent deployment", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
