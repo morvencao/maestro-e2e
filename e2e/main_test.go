@@ -40,10 +40,10 @@ const (
 )
 
 func TestMain(m *testing.M) {
-	testenv = env.New()
+	cfg, _ := envconf.NewFromFlags()
 	if os.Getenv("REAL_CLUSTER") == "true" {
 		path := conf.ResolveKubeConfigFile()
-		cfg := envconf.NewWithKubeConfig(path)
+		cfg = cfg.WithKubeconfigFile(path)
 		testenv = env.NewWithConfig(cfg)
 
 		testenv.Setup(
@@ -71,6 +71,7 @@ func TestMain(m *testing.M) {
 			)
 		}
 	} else {
+		testenv = env.NewWithConfig(cfg)
 		kindClusterName := envconf.RandomName("maestro-e2e", 16)
 
 		testenv.Setup(

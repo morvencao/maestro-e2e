@@ -38,11 +38,22 @@ Note: By default, the cluster and testing resources will not be deleted after th
 CLEAN_ENV=true go test ./e2e/...
 ```
 
-3. You can also skip testing based labels, for example, to skip rest API testing:
+3. You can easily skip specific tests based on labels using the following command:
 
 ```bash
 go test ./e2e/... -args --skip-labels="type=rest"
 ```
 
-If you want to skip testings for GRPC, you can use `type=grpc` instead.
-If you want to skip testings for manifest(cloudevent) API, you can use `res=manifest` instead.
+To skip GRPC tests, use the label `type=grpc`:
+
+```bash
+go test ./e2e/... -args --skip-labels="type=grpc"
+```
+
+To skip tests for the manifest (cloudevent) API, use the label `res=manifest`:
+
+```bash
+go test ./e2e/... -args --skip-labels="res=manifest"
+```
+
+By utilizing these labels, you can easily customize your testing suite to exclude specific test types as needed.
