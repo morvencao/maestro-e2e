@@ -1,0 +1,35 @@
+name: e2e
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+
+    - name: Create k8s Kind Cluster
+      uses: helm/kind-action@v1.5.0
+      with:
+        cluster_name: maestro-e2e
+        # install_only: true
+      env:
+        REAL_CLUSTER: "true"
+
+    - name: Test
+      run: go test -v ./...
+      env:
+        PAGER: cat
+        AWS_ACCESS_KEY_ID: x
+        AWS_SECRET_ACCESS_KEY: x
+
