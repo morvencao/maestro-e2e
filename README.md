@@ -23,37 +23,39 @@ kind create cluster --config e2e/kind-config.yaml``
 Then, run the testing with the following command:
 
 ```bash
-REAL_CLUSTER=true go test ./e2e/...
+REAL_CLUSTER=true go test ./e2e
 ```
 
 2. Creating new KinD cluster for testing
 
 ```bash
-go test ./e2e/...
+go test ./e2e
 ```
 
 Note: By default, the cluster and testing resources will not be deleted after the testing. If you want to delete them after the testing, you can set the environment variable `CLEAN_ENV` to `true`:
 
 ```bash
-CLEAN_ENV=true go test ./e2e/...
+CLEAN_ENV=true go test ./e2e
 ```
 
 3. You can easily skip specific tests based on labels using the following command:
 
 ```bash
-go test ./e2e/... -args --skip-labels="type=rest"
+go test ./e2e -args --skip-labels="type=rest"
 ```
 
 To skip GRPC tests, use the label `type=grpc`:
 
 ```bash
-go test ./e2e/... -args --skip-labels="type=grpc"
+go test ./e2e -args --skip-labels="type=grpc"
 ```
 
 To skip tests for the manifest (cloudevent) API, use the label `res=manifest`:
 
 ```bash
-go test ./e2e/... -args --skip-labels="res=manifest"
+go test ./e2e -args --skip-labels="res=manifest"
 ```
+
+_Note:_ you can't skip consumer tests, as they are required for the other tests to run.
 
 By utilizing these labels, you can easily customize your testing suite to exclude specific test types as needed.
