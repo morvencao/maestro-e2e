@@ -17,7 +17,7 @@ spec:
       serviceAccountName: work-agent-sa
       containers:
       - name: work-agent
-        image: quay.io/open-cluster-management/work:latest
+        image: quay.io/morvencao/work:latest
         imagePullPolicy: Always
         args:
           - "/work"
@@ -29,7 +29,7 @@ spec:
           - "--mqtt-username=admin"
           - "--mqtt-password=password"
           - "--mqtt-sub-qos=1"
-          - "--mqtt-response-qos=1"
+          - "--mqtt-pub-qos=1"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

@@ -4,9 +4,9 @@ e2e testing for [maestro project](https://github.com/kube-orchestra/maestro)
 
 ## Prerequisites
 
-- Golang
-- KinD
-- Docker
+- [Golang](https://golang.org/)
+- [KinD](https://kind.sigs.k8s.io/)
+- [Docker](https://www.docker.com/) or [Podman](https://podman.io/)
 
 ## Get Started
 
@@ -17,7 +17,7 @@ You have two options to run the e2e testing:
 For example, you can create a KinD cluster using configuration file `kind-config.yaml`:
 
 ```bash
-kind create cluster --config e2e/kind-config.yaml``
+kind create cluster --config e2e/kind-config.yaml
 ```
 
 Then, run the testing with the following command:
