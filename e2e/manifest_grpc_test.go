@@ -90,7 +90,7 @@ func TestManifestGRPCService(t *testing.T) {
 				"spec": {
 					"containers": [
 					{
-						"image": "nginxinc/nginx-unprivileged",
+						"image": "quay.io/jitesoft/nginx",
 						"imagePullPolicy": "IfNotPresent",
 						"name": "nginx"
 					}
@@ -124,7 +124,7 @@ func TestManifestGRPCService(t *testing.T) {
 
 			err = wait.For(conditions.New(cfg.Client().Resources()).ResourceMatch(webDep, func(object k8s.Object) bool {
 				d := object.(*appsv1.Deployment)
-				return *d.Spec.Replicas == 1
+				return d.Status.ReadyReplicas == 1
 			}), wait.WithTimeout(time.Minute*2))
 			if err != nil {
 				t.Fatal(err)
@@ -171,7 +171,7 @@ func TestManifestGRPCService(t *testing.T) {
 				"spec": {
 					"containers": [
 					{
-						"image": "nginxinc/nginx-unprivileged",
+						"image": "quay.io/jitesoft/nginx",
 						"imagePullPolicy": "IfNotPresent",
 						"name": "nginx"
 					}
@@ -205,7 +205,7 @@ func TestManifestGRPCService(t *testing.T) {
 
 			err = wait.For(conditions.New(cfg.Client().Resources()).ResourceMatch(webDep, func(object k8s.Object) bool {
 				d := object.(*appsv1.Deployment)
-				return *d.Spec.Replicas == 2
+				return d.Status.ReadyReplicas == 2
 			}), wait.WithTimeout(time.Minute*2))
 			if err != nil {
 				t.Fatal(err)

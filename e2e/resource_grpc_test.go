@@ -76,7 +76,7 @@ func TestResourceGRPCService(t *testing.T) {
 			"spec": {
 				"containers": [
 					{
-						"image": "nginxinc/nginx-unprivileged",
+						"image": "quay.io/jitesoft/nginx",
 						"imagePullPolicy": "IfNotPresent",
 						"name": "nginx"
 					}
@@ -109,7 +109,7 @@ func TestResourceGRPCService(t *testing.T) {
 
 			err = wait.For(conditions.New(cfg.Client().Resources()).ResourceMatch(nginxDep, func(object k8s.Object) bool {
 				d := object.(*appsv1.Deployment)
-				return *d.Spec.Replicas == 1
+				return d.Status.ReadyReplicas == 1
 			}), wait.WithTimeout(time.Minute*2))
 			if err != nil {
 				t.Fatal(err)
@@ -119,26 +119,42 @@ func TestResourceGRPCService(t *testing.T) {
 			resourceID = pbResource.Id
 			return ctx
 		}).
-		Assess("should be able to retrieve a resource", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+		Assess("should be able to retrieve the resource", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// retrieve the resource
 			grpcClient := ctx.Value("grpc-resource-client").(maestropbv1.ResourceServiceClient)
-			pbResource, err := grpcClient.Read(ctx, &maestropbv1.ResourceReadRequest{
+			resReadReq := &maestropbv1.ResourceReadRequest{
 				Id: resourceID,
-			})
-			if err != nil {
-				t.Fatal(err)
 			}
 
-			spec := pbResource.Object.Fields["spec"]
-			replicas := spec.GetStructValue().Fields["replicas"]
-			if replicas.GetNumberValue() != float64(1) {
-				t.Fatalf("expected replicas %f, got %f", float64(1), replicas.GetNumberValue())
+			pbResource := &maestropbv1.Resource{}
+			err := wait.For(func(context.Context) (done bool, err error) {
+				pbResource, err = grpcClient.Read(ctx, resReadReq)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				spec := pbResource.Object.Fields["spec"]
+				replicas := spec.GetStructValue().Fields["replicas"]
+				if replicas.GetNumberValue() != float64(1) {
+					return false, nil
+				}
+
+				contentStatus := pbResource.Status.Fields["contentStatus"]
+				readyReplicas := contentStatus.GetStructValue().Fields["readyReplicas"]
+				if readyReplicas.GetNumberValue() != float64(1) {
+					return false, nil
+				}
+
+				return true, nil
+			}, wait.WithTimeout(time.Minute*2), wait.WithInterval(time.Second*5))
+			if err != nil {
+				t.Fatal(err)
 			}
 
 			t.Logf("resource retrieved: %s", pbResource.Id)
 			return ctx
 		}).
-		Assess("should be able to update a resource", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+		Assess("should be able to update the resource", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// update the resource
 			grpcClient := ctx.Value("grpc-resource-client").(maestropbv1.ResourceServiceClient)
 			nginxDeployJSON := []byte(`
@@ -165,7 +181,7 @@ func TestResourceGRPCService(t *testing.T) {
 			"spec": {
 				"containers": [
 					{
-						"image": "nginxinc/nginx-unprivileged",
+						"image": "quay.io/jitesoft/nginx",
 						"imagePullPolicy": "IfNotPresent",
 						"name": "nginx"
 					}
@@ -199,13 +215,48 @@ func TestResourceGRPCService(t *testing.T) {
 
 			err = wait.For(conditions.New(cfg.Client().Resources()).ResourceMatch(nginxDep, func(object k8s.Object) bool {
 				d := object.(*appsv1.Deployment)
-				return *d.Spec.Replicas == 2
+				return d.Status.ReadyReplicas == 2
 			}), wait.WithTimeout(time.Minute*2))
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			t.Logf("resource updated: %s", pbResource.Id)
+			return ctx
+		}).
+		Assess("should be able to retrieve the updated resource", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+			// retrieve the resource
+			grpcClient := ctx.Value("grpc-resource-client").(maestropbv1.ResourceServiceClient)
+			resReadReq := &maestropbv1.ResourceReadRequest{
+				Id: resourceID,
+			}
+
+			pbResource := &maestropbv1.Resource{}
+			err := wait.For(func(context.Context) (done bool, err error) {
+				pbResource, err = grpcClient.Read(ctx, resReadReq)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				spec := pbResource.Object.Fields["spec"]
+				replicas := spec.GetStructValue().Fields["replicas"]
+				if replicas.GetNumberValue() != float64(2) {
+					return false, nil
+				}
+
+				contentStatus := pbResource.Status.Fields["contentStatus"]
+				readyReplicas := contentStatus.GetStructValue().Fields["readyReplicas"]
+				if readyReplicas.GetNumberValue() != float64(2) {
+					return false, nil
+				}
+
+				return true, nil
+			}, wait.WithTimeout(time.Minute*2), wait.WithInterval(time.Second*5))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			t.Logf("resource retrieved: %s", pbResource.Id)
 			return ctx
 		}).
 		Teardown(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {

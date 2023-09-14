@@ -76,7 +76,7 @@ func TestResourceRESTAPI(t *testing.T) {
 			"spec": {
 				"containers": [
 					{
-						"image": "nginxinc/nginx-unprivileged",
+						"image": "quay.io/jitesoft/nginx",
 						"imagePullPolicy": "IfNotPresent",
 						"name": "nginx"
 					}
@@ -121,7 +121,7 @@ func TestResourceRESTAPI(t *testing.T) {
 
 			err = wait.For(conditions.New(cfg.Client().Resources()).ResourceMatch(nginxDep, func(object k8s.Object) bool {
 				d := object.(*appsv1.Deployment)
-				return *d.Spec.Replicas == 1
+				return d.Status.ReadyReplicas == 1
 			}), wait.WithTimeout(time.Minute*2))
 			if err != nil {
 				t.Fatal(err)
@@ -131,7 +131,7 @@ func TestResourceRESTAPI(t *testing.T) {
 			resourceID = resource.Id
 			return ctx
 		}).
-		Assess("should be able to retrieve a resource", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+		Assess("should be able to retrieve the resource", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// retrieve the resource
 			requestURL := fmt.Sprintf("%s/%s/%s", maestroRESTBaseURL, "v1/resources", resourceID)
 			req, err := http.NewRequest(http.MethodGet, requestURL, nil)
@@ -140,37 +140,50 @@ func TestResourceRESTAPI(t *testing.T) {
 			}
 
 			httpClient := ctx.Value("http-client").(*http.Client)
-			resp, err := httpClient.Do(req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("expected status code %d, got %d", http.StatusOK, resp.StatusCode)
-			}
-
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-
 			resource := &maestropbv1.Resource{}
-			err = protojson.Unmarshal(bodyBytes, resource)
+			err = wait.For(func(context.Context) (done bool, err error) {
+				resp, err := httpClient.Do(req)
+				if err != nil {
+					return false, err
+				}
+				defer resp.Body.Close()
+
+				if resp.StatusCode != http.StatusOK {
+					return false, nil
+				}
+
+				bodyBytes, err := io.ReadAll(resp.Body)
+				if err != nil {
+					return false, err
+				}
+
+				err = protojson.Unmarshal(bodyBytes, resource)
+				if err != nil {
+					return false, err
+				}
+
+				spec := resource.Object.Fields["spec"]
+				replicas := spec.GetStructValue().Fields["replicas"]
+				if replicas.GetNumberValue() != float64(1) {
+					return false, nil
+				}
+
+				contentStatus := resource.Status.Fields["contentStatus"]
+				readyReplicas := contentStatus.GetStructValue().Fields["readyReplicas"]
+				if readyReplicas.GetNumberValue() != float64(1) {
+					return false, nil
+				}
+
+				return true, nil
+			}, wait.WithTimeout(time.Minute*2), wait.WithInterval(time.Second*5))
 			if err != nil {
 				t.Fatal(err)
-			}
-
-			spec := resource.Object.Fields["spec"]
-			replicas := spec.GetStructValue().Fields["replicas"]
-			if replicas.GetNumberValue() != float64(1) {
-				t.Fatalf("expected replicas %f, got %f", float64(1), replicas.GetNumberValue())
 			}
 
 			t.Logf("resource retrieved: %s", resource.Id)
 			return ctx
 		}).
-		Assess("should be able to update a resource", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+		Assess("should be able to update the resource", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// update the resource
 			requestURL := fmt.Sprintf("%s/%s/%s", maestroRESTBaseURL, "v1/resources", resourceID)
 			nginxDeployJSON := []byte(`
@@ -197,7 +210,7 @@ func TestResourceRESTAPI(t *testing.T) {
 			"spec": {
 				"containers": [
 					{
-						"image": "nginxinc/nginx-unprivileged",
+						"image": "quay.io/jitesoft/nginx",
 						"imagePullPolicy": "IfNotPresent",
 						"name": "nginx"
 					}
@@ -241,13 +254,65 @@ func TestResourceRESTAPI(t *testing.T) {
 
 			err = wait.For(conditions.New(cfg.Client().Resources()).ResourceMatch(nginxDep, func(object k8s.Object) bool {
 				d := object.(*appsv1.Deployment)
-				return *d.Spec.Replicas == 2
+				return d.Status.ReadyReplicas == 2
 			}), wait.WithTimeout(time.Minute*2))
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			t.Logf("resource updated: %s", resource.Id)
+			return ctx
+		}).
+		Assess("should be able to retrieve the updated resource", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+			// retrieve the resource
+			requestURL := fmt.Sprintf("%s/%s/%s", maestroRESTBaseURL, "v1/resources", resourceID)
+			req, err := http.NewRequest(http.MethodGet, requestURL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			httpClient := ctx.Value("http-client").(*http.Client)
+			resource := &maestropbv1.Resource{}
+			err = wait.For(func(context.Context) (done bool, err error) {
+				resp, err := httpClient.Do(req)
+				if err != nil {
+					return false, err
+				}
+				defer resp.Body.Close()
+
+				if resp.StatusCode != http.StatusOK {
+					return false, nil
+				}
+
+				bodyBytes, err := io.ReadAll(resp.Body)
+				if err != nil {
+					return false, err
+				}
+
+				err = protojson.Unmarshal(bodyBytes, resource)
+				if err != nil {
+					return false, err
+				}
+
+				spec := resource.Object.Fields["spec"]
+				replicas := spec.GetStructValue().Fields["replicas"]
+				if replicas.GetNumberValue() != float64(2) {
+					return false, nil
+				}
+
+				contentStatus := resource.Status.Fields["contentStatus"]
+				readyReplicas := contentStatus.GetStructValue().Fields["readyReplicas"]
+				if readyReplicas.GetNumberValue() != float64(2) {
+					return false, nil
+				}
+
+				return true, nil
+			}, wait.WithTimeout(time.Minute*2), wait.WithInterval(time.Second*5))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			t.Logf("resource retrieved: %s", resource.Id)
 			return ctx
 		}).
 		Teardown(func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
