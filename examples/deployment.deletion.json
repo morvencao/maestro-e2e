@@ -1,0 +1,33 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "nginx",
+    "namespace": "default",
+    "deletionTimestamp": "2023-08-01T14:36:00Z"
+  },
+  "spec": {
+    "replicas": 3,
+    "selector": {
+      "matchLabels": {
+        "app": "nginx"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "nginx"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "image": "nginxinc/nginx-unprivileged",
+            "imagePullPolicy": "IfNotPresent",
+            "name": "nginx"
+          }
+        ]
+      }
+    }
+  }
+}

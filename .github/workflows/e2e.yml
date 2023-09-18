@@ -27,7 +27,7 @@ jobs:
         REAL_CLUSTER: "true"
 
     - name: Test
-      run: go test -v ./...
+      run: go test -v ./e2e
       env:
         PAGER: cat
         AWS_ACCESS_KEY_ID: x

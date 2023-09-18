@@ -38,7 +38,8 @@ func TestConsumerGRPCService(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// t.Logf("deployment availability: %.2f%%", float64(maestroDep.Status.ReadyReplicas)/float64(*maestroDep.Spec.Replicas)*100)
+
+			t.Logf("maestro deployment availability: %.2f%%", float64(maestroDep.Status.ReadyReplicas)/float64(*maestroDep.Spec.Replicas)*100)
 
 			conn := ctx.Value("grpc-connction").(*grpc.ClientConn)
 			grpcClient := maestropbv1.NewConsumerServiceClient(conn)
@@ -127,6 +128,20 @@ func TestConsumerGRPCService(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
+			expectedWorkAgentDep := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Name: "work-agent", Namespace: "open-cluster-management-agent"},
+			}
+			// wait for the deployment to become at least 50%
+			err = wait.For(conditions.New(cfg.Client().Resources()).ResourceMatch(expectedWorkAgentDep, func(object k8s.Object) bool {
+				d := object.(*appsv1.Deployment)
+				return float64(d.Status.ReadyReplicas)/float64(*d.Spec.Replicas) >= 0.50
+			}), wait.WithTimeout(time.Minute*2))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			t.Logf("work-agent deployment availability: %.2f%%", float64(expectedWorkAgentDep.Status.ReadyReplicas)/float64(*expectedWorkAgentDep.Spec.Replicas)*100)
 
 			return ctx
 		}).

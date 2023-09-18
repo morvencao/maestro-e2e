@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	maestropbv1 "github.com/kube-orchestra/maestro/proto/api/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	appsv1 "k8s.io/api/apps/v1"
@@ -55,6 +57,7 @@ func TestMain(m *testing.M) {
 			createTables("us-east-1", dbEndpoint),
 			createGRPCClient(maestroGPRCBaseURL),
 			createHttpClient(),
+			createConsumer(),
 		)
 		if os.Getenv("CLEAN_ENV") == "true" {
 			testenv.Finish(
@@ -84,6 +87,7 @@ func TestMain(m *testing.M) {
 			createTables("us-east-1", dbEndpoint),
 			createGRPCClient(maestroGPRCBaseURL),
 			createHttpClient(),
+			createConsumer(),
 		)
 
 		if os.Getenv("CLEAN_ENV") == "true" {
@@ -356,6 +360,89 @@ func deleteGRPCClient() env.Func {
 		}
 
 		conn.Close()
+		return ctx, nil
+	}
+}
+
+func createConsumer() env.Func {
+	return func(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
+		client, err := cfg.NewClient()
+		if err != nil {
+			return ctx, err
+		}
+		maestroDep := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "maestro-api", Namespace: "maestro"},
+		}
+		// wait for the deployment to become at least 50%
+		err = wait.For(conditions.New(client.Resources()).ResourceMatch(maestroDep, func(object k8s.Object) bool {
+			d := object.(*appsv1.Deployment)
+			return float64(d.Status.ReadyReplicas)/float64(*d.Spec.Replicas) >= 0.50
+		}), wait.WithTimeout(time.Minute*2))
+		if err != nil {
+			return ctx, err
+		}
+
+		fmt.Printf("maestro deployment availability: %.2f%%\n", float64(maestroDep.Status.ReadyReplicas)/float64(*maestroDep.Spec.Replicas)*100)
+
+		conn := ctx.Value("grpc-connction").(*grpc.ClientConn)
+		grpcClient := maestropbv1.NewConsumerServiceClient(conn)
+
+		pbConsumer, err := grpcClient.Create(ctx, &maestropbv1.ConsumerCreateRequest{
+			Labels: []*maestropbv1.ConsumerLabel{
+				{
+					Key:   "foo",
+					Value: "bar",
+				},
+			},
+		})
+		if err != nil {
+			return ctx, err
+		}
+
+		fmt.Printf("consumer created: %s\n", pbConsumer.Id)
+		consumerID = pbConsumer.Id
+
+		pbConsumer, err = grpcClient.Read(ctx, &maestropbv1.ConsumerReadRequest{
+			Id: consumerID,
+		})
+		if err != nil {
+			return ctx, err
+		}
+
+		fmt.Printf("consumer retrieved: %s\n", pbConsumer.Id)
+
+		var workAgentDep appsv1.Deployment
+		if err := cfg.Client().Resources().Get(ctx, "work-agent", "open-cluster-management-agent", &workAgentDep); err != nil {
+			return ctx, err
+		}
+		// update the cluster id for work-agent deployment
+		args := workAgentDep.Spec.Template.Spec.Containers[0].Args
+		for i, arg := range args {
+			if strings.Contains(arg, "--spoke-cluster-name=") {
+				args[i] = fmt.Sprintf("--spoke-cluster-name=%s", consumerID)
+				break
+			}
+		}
+
+		err = cfg.Client().Resources().Update(ctx, &workAgentDep)
+		if err != nil {
+			return ctx, err
+		}
+
+		expectedWorkAgentDep := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "work-agent", Namespace: "open-cluster-management-agent"},
+		}
+		// wait for the deployment to become at least 50%
+		err = wait.For(conditions.New(cfg.Client().Resources()).ResourceMatch(expectedWorkAgentDep, func(object k8s.Object) bool {
+			d := object.(*appsv1.Deployment)
+			return float64(d.Status.ReadyReplicas)/float64(*d.Spec.Replicas) >= 0.50
+		}), wait.WithTimeout(time.Minute*2))
+		if err != nil {
+			return ctx, err
+		}
+
+		fmt.Printf("work-agent deployment availability: %.2f%%\n", float64(expectedWorkAgentDep.Status.ReadyReplicas)/float64(*expectedWorkAgentDep.Spec.Replicas)*100)
+
 		return ctx, nil
 	}
 }
