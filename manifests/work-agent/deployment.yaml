@@ -17,7 +17,7 @@ spec:
       serviceAccountName: work-agent-sa
       containers:
       - name: work-agent
-        image: quay.io/morvencao/work:latest
+        image: quay.io/open-cluster-management/work:latest
         imagePullPolicy: Always
         args:
           - "/work"

@@ -113,7 +113,7 @@ func TestMain(m *testing.M) {
 
 func installComponent(kustomizationPath string) env.Func {
 	return func(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
-		mqttManifests, err := kustomize.Render(kustomize.Options{
+		manifests, err := kustomize.Render(kustomize.Options{
 			KustomizationPath: kustomizationPath,
 		})
 		if err != nil {
@@ -121,7 +121,7 @@ func installComponent(kustomizationPath string) env.Func {
 			return ctx, err
 		}
 
-		objects, err := kustomize.ToObjects(mqttManifests)
+		objects, err := kustomize.ToObjects(manifests)
 		if err != nil {
 			fmt.Printf("Error converting manifests to objects: %v\n", err)
 			return ctx, err
@@ -140,7 +140,7 @@ func installComponent(kustomizationPath string) env.Func {
 
 func uninstallComponent(kustomizationPath string) env.Func {
 	return func(ctx context.Context, cfg *envconf.Config) (context.Context, error) {
-		mqttManifests, err := kustomize.Render(kustomize.Options{
+		manifests, err := kustomize.Render(kustomize.Options{
 			KustomizationPath: kustomizationPath,
 		})
 		if err != nil {
@@ -148,7 +148,7 @@ func uninstallComponent(kustomizationPath string) env.Func {
 			return ctx, err
 		}
 
-		objects, err := kustomize.ToObjects(mqttManifests)
+		objects, err := kustomize.ToObjects(manifests)
 		if err != nil {
 			fmt.Printf("Error converting manifests to objects: %v\n", err)
 			return ctx, err

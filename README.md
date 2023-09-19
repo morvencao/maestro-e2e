@@ -103,7 +103,7 @@ CONSUMER_ID="f7384ef8-37bf-4cb2-8682-9b2f00b6f457"
 
 ```bash
 # create resource
-curl -X POST localhost:31330/v1/consumers/$CONSUMER_ID/resources -H "Content-Type: application/json" --data-binary @examples/deployment.json | jq
+curl -X POST localhost:31330/v1/consumers/$CONSUMER_ID/resources -H "Content-Type: application/json" --data-binary @examples/deployment.json
 {
   "id": "11ddef7f-2816-4779-a25a-496660005cff",
   "consumerId": "f7384ef8-37bf-4cb2-8682-9b2f00b6f457",

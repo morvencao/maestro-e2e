@@ -4,6 +4,7 @@ namespace: open-cluster-management-agent
 
 resources:
 - ./appliedmanifestworks.crd.yaml
+- ./manifestworks.crd.yaml
 - ./component_namespace.yaml
 - ./service_account.yaml
 - ./role.yaml
@@ -18,6 +19,6 @@ resources:
 images:
 - name: quay.io/open-cluster-management/work
   newName: quay.io/morvencao/work
-  newTag: mqtt
+  newTag: latest
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
