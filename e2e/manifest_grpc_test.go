@@ -10,10 +10,12 @@ import (
 
 	cepbv2 "github.com/cloudevents/sdk-go/binding/format/protobuf/v2"
 	"github.com/cloudevents/sdk-go/v2/event"
+	cloudeventstypes "github.com/cloudevents/sdk-go/v2/types"
 	maestropbv1 "github.com/kube-orchestra/maestro/proto/api/v1"
 	"google.golang.org/grpc"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	cetypes "open-cluster-management.io/api/cloudevents/generic/types"
 	"sigs.k8s.io/e2e-framework/klient/k8s"
 	"sigs.k8s.io/e2e-framework/klient/wait"
 	"sigs.k8s.io/e2e-framework/klient/wait/conditions"
@@ -108,6 +110,12 @@ func TestManifestGRPCService(t *testing.T) {
 				log.Fatal(err)
 			}
 
+			evtExtensions := evt.Context.GetExtensions()
+			resourceID, err = cloudeventstypes.ToString(evtExtensions[cetypes.ExtensionResourceID])
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			pbEvt, err := cepbv2.ToProto(evt)
 			if err != nil {
 				log.Fatal(err)
@@ -131,6 +139,32 @@ func TestManifestGRPCService(t *testing.T) {
 			}
 
 			t.Logf("manifest created: %s", pbCESendResp.Status)
+			return ctx
+		}).
+		Assess("should be able to watch the manifest status", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+			// watch the manifest status
+			grpcClient := ctx.Value("grpc-manifest-client").(maestropbv1.CloudEventsServiceClient)
+			watchClient, err := grpcClient.Watch(ctx, &maestropbv1.ResourceWatchRequest{Id: resourceID})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			newPbEvt, err := watchClient.Recv()
+			if err != nil {
+				log.Fatalf("failed to receive event: %v", err)
+			}
+
+			newEvt, err := cepbv2.FromProto(newPbEvt)
+			if err != nil {
+				log.Fatalf("failed to convert protobuf to cloudevent: %v", err)
+			}
+
+			newEvtJSON, err := json.Marshal(newEvt)
+			if err != nil {
+				log.Fatalf("failed to marshal cloudevent: %v", err)
+			}
+
+			t.Logf("received event for manifest status update:\n%s\n\n", newEvtJSON)
 			return ctx
 		}).
 		Assess("should be able to update the manifest", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {

@@ -15,12 +15,13 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.28.1
 	k8s.io/apimachinery v0.28.1
+	open-cluster-management.io/api v0.11.1-0.20230831024725-c7abb657f7b2
 	sigs.k8s.io/e2e-framework v0.3.0
 	sigs.k8s.io/kustomize/api v0.14.0
 	sigs.k8s.io/yaml v1.3.0
 )
 
-replace github.com/kube-orchestra/maestro => github.com/morvencao/maestro v0.0.0-20230905014658-b72e18e6f2ff
+replace github.com/kube-orchestra/maestro => github.com/morvencao/maestro v0.0.0-20231025125340-f3990fe91dec
 
 require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.13.27 // indirect
@@ -68,6 +69,9 @@ require (
 	github.com/vladimirvivien/gexe v0.2.0 // indirect
 	github.com/xlab/treeprint v1.2.0 // indirect
 	go.starlark.net v0.0.0-20200306205701-8dd3e2ee1dd5 // indirect
+	go.uber.org/atomic v1.7.0 // indirect
+	go.uber.org/multierr v1.6.0 // indirect
+	go.uber.org/zap v1.24.0 // indirect
 	golang.org/x/net v0.13.0 // indirect
 	golang.org/x/oauth2 v0.8.0 // indirect
 	golang.org/x/sys v0.10.0 // indirect
