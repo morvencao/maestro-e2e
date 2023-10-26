@@ -23,6 +23,8 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/features"
 )
 
+var ceResourceID = ""
+
 func TestManifestGRPCService(t *testing.T) {
 	manifestFeature := features.New("Manifest GRPC Service").
 		WithLabel("type", "grpc").
@@ -111,7 +113,7 @@ func TestManifestGRPCService(t *testing.T) {
 			}
 
 			evtExtensions := evt.Context.GetExtensions()
-			resourceID, err = cloudeventstypes.ToString(evtExtensions[cetypes.ExtensionResourceID])
+			ceResourceID, err = cloudeventstypes.ToString(evtExtensions[cetypes.ExtensionResourceID])
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -141,10 +143,10 @@ func TestManifestGRPCService(t *testing.T) {
 			t.Logf("manifest created: %s", pbCESendResp.Status)
 			return ctx
 		}).
-		Assess("should be able to watch the manifest status", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
+		Assess("should be able to watch the manifest status update event", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 			// watch the manifest status
 			grpcClient := ctx.Value("grpc-manifest-client").(maestropbv1.CloudEventsServiceClient)
-			watchClient, err := grpcClient.Watch(ctx, &maestropbv1.ResourceWatchRequest{Id: resourceID})
+			watchClient, err := grpcClient.Watch(ctx, &maestropbv1.ResourceWatchRequest{Id: ceResourceID})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -164,7 +166,7 @@ func TestManifestGRPCService(t *testing.T) {
 				log.Fatalf("failed to marshal cloudevent: %v", err)
 			}
 
-			t.Logf("received event for manifest status update:\n%s\n\n", newEvtJSON)
+			t.Logf("received event for manifest status update:\n%s\n", newEvtJSON)
 			return ctx
 		}).
 		Assess("should be able to update the manifest", func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
